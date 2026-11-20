@@ -1,10 +1,13 @@
 pluginManagement {
     repositories {
         // China mirrors first: repo.maven.apache.org and dl.google.com both
-        // fail TLS handshake from this network.
-        maven { url = uri("https://maven.aliyun.com/repository/public") }
-        maven { url = uri("https://maven.aliyun.com/repository/google") }
-        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+        // fail TLS handshake from this network. CI sets GRADLE_CN_MIRROR=false
+        // to resolve from the canonical repositories instead.
+        if (System.getenv("GRADLE_CN_MIRROR") != "false") {
+            maven { url = uri("https://maven.aliyun.com/repository/public") }
+            maven { url = uri("https://maven.aliyun.com/repository/google") }
+            maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+        }
         google {
             content {
                 includeGroupByRegex("androidx.*")
@@ -20,10 +23,13 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         // China mirrors first: repo.maven.apache.org and dl.google.com both
-        // fail TLS handshake from this network.
-        maven { url = uri("https://maven.aliyun.com/repository/public") }
-        maven { url = uri("https://maven.aliyun.com/repository/google") }
-        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+        // fail TLS handshake from this network. CI sets GRADLE_CN_MIRROR=false
+        // to resolve from the canonical repositories instead.
+        if (System.getenv("GRADLE_CN_MIRROR") != "false") {
+            maven { url = uri("https://maven.aliyun.com/repository/public") }
+            maven { url = uri("https://maven.aliyun.com/repository/google") }
+            maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+        }
         google {
             content {
                 includeGroupByRegex("androidx.*")
