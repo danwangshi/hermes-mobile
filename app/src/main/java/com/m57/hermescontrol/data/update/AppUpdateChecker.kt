@@ -1,5 +1,6 @@
 package com.m57.hermescontrol.data.update
 
+import android.util.Log
 import com.m57.hermescontrol.data.remote.OkHttpProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -16,6 +17,7 @@ import okhttp3.Response
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 /**
  * Latest release metadata from the GitHub releases API (issue #867) — the
@@ -47,6 +49,20 @@ data class UpdateInfo(
 
 /** Strip a leading 'v' from a release tag ("v1.21.0" → "1.21.0"). */
 fun normalizedVersion(tag: String): String = tag.trim().removePrefix("v")
+
+/**
+ * 定制版：APK 下载源候选，官方直链优先，其后是国内可达的镜像前缀。
+ *
+ * 国内网络对 `github.com/.../releases/download/...` 常表现为 TLS 握手成功但
+ * 收不到任何数据，而 `api.github.com` 与镜像站点正常，所以这里按顺序回退。
+ * 只接受 https 输入；镜像拼接后仍为 https。
+ */
+private val APK_MIRROR_PREFIXES = listOf("https://ghproxy.net/", "https://gh-proxy.com/")
+
+internal fun apkDownloadSources(url: String): List<String> {
+    val canonical = url.toHttpUrlOrNull()?.takeIf { it.scheme == "https" } ?: return emptyList()
+    return listOf(canonical.toString()) + APK_MIRROR_PREFIXES.map { it + canonical }
+}
 
 /**
  * True when [latest] is strictly newer than [current] (issue #867).
@@ -179,6 +195,8 @@ open class AppUpdateChecker(
     private val downloadClient by lazy {
         client
             .newBuilder()
+            // 定制版：16MB APK 走跨境链路，30s 读超时不够；逐次读取放宽到 60s。
+            .readTimeout(60, TimeUnit.SECONDS)
             // Never switch scheme on redirect; the interceptor below stays as a second guard.
             .followSslRedirects(false)
             .addNetworkInterceptor { chain ->
@@ -510,6 +528,23 @@ open class AppUpdateChecker(
         url: String,
         dest: File,
         onProgress: (Float) -> Unit,
+    ): Boolean {
+        val sources = apkDownloadSources(url)
+        if (sources.isEmpty()) {
+            deletePartial(dest)
+            return false
+        }
+        for ((index, source) in sources.withIndex()) {
+            if (downloadFrom(source, dest, onProgress)) return true
+            Log.w(TAG, "APK 下载源 #${index + 1} 失败，尝试下一个：$source")
+        }
+        return false
+    }
+
+    private suspend fun downloadFrom(
+        url: String,
+        dest: File,
+        onProgress: (Float) -> Unit,
     ): Boolean =
         suspendCancellableCoroutine { continuation ->
             val request =
@@ -603,6 +638,7 @@ open class AppUpdateChecker(
     }
 
     private companion object {
+        const val TAG = "AppUpdateChecker"
         const val DEFAULT_BUFFER_SIZE = 8192
         const val HTTP_NOT_FOUND = 404
         const val HTTP_NOT_MODIFIED = 304

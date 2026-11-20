@@ -388,4 +388,25 @@ class AppUpdateCheckerTest {
         assertNull(parseReleaseList("not json at all"))
         assertNull(parseReleaseList("{}"))
     }
+
+    // ── APK download sources ────────────────────────────────────────────
+
+    @Test
+    fun apkDownloadSources_officialFirstThenMirrors() {
+        val url = "https://github.com/o/r/releases/download/v1.2.3/app.apk"
+        val sources = apkDownloadSources(url)
+        assertEquals(3, sources.size)
+        assertEquals(url, sources[0])
+        assertTrue(
+            "mirror entries must stay https and wrap the canonical URL",
+            sources.drop(1).all { it.startsWith("https://") && it.endsWith(url) },
+        )
+        assertTrue(sources[1].startsWith("https://ghproxy.net/"))
+    }
+
+    @Test
+    fun apkDownloadSources_rejectsNonHttps() {
+        assertTrue(apkDownloadSources("http://github.com/x.apk").isEmpty())
+        assertTrue(apkDownloadSources("not a url").isEmpty())
+    }
 }
