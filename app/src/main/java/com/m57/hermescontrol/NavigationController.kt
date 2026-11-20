@@ -26,6 +26,7 @@ data class PendingNewChatNavigation(
     // Project to start the chat in; null keeps the default workspace.
     val project: ProjectInfo? = null,
     val fromTile: Boolean = false,
+    val autoStartVoice: Boolean = false,
 )
 
 /**
@@ -145,21 +146,30 @@ object NavigationController {
         queueChatNavigation(sessionId, scrollToBottom = true, returnToList = false, scope = scope)
     }
 
-    fun openNewChat(project: ProjectInfo? = null) {
+    fun openNewChat(
+        project: ProjectInfo? = null,
+        autoStartVoice: Boolean = false,
+    ) {
         pendingChatNavigation = null
         pendingNewChatNavigation =
             PendingNewChatNavigation(
                 requestId = ++nextNewChatNavigationRequestId,
                 project = project,
+                autoStartVoice = autoStartVoice,
             )
         navigateTo(ChatScreen)
     }
 
     /** #1603: park the action through authentication; never navigate around the login gate. */
-    fun queueNewChatFromTile() {
+    fun queueNewChatFromTile(autoStartVoice: Boolean = false) {
         if (pendingNewChatNavigation?.fromTile == true) return
         pendingChatNavigation = null
-        pendingNewChatNavigation = PendingNewChatNavigation(++nextNewChatNavigationRequestId, fromTile = true)
+        pendingNewChatNavigation =
+            PendingNewChatNavigation(
+                ++nextNewChatNavigationRequestId,
+                fromTile = true,
+                autoStartVoice = autoStartVoice,
+            )
     }
 
     private fun queueChatNavigation(

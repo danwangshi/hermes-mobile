@@ -50,5 +50,6 @@ class NewChatTileService : TileService() {
 internal fun newChatTileIntent(context: Context): Intent =
     Intent(context, MainActivity::class.java).apply {
         action = MainActivity.ACTION_NEW_CHAT_FROM_TILE
+        putExtra(MainActivity.EXTRA_NEW_CHAT_VOICE, true)
         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
     }

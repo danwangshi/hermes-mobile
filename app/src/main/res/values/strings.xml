@@ -346,6 +346,7 @@
     <string name="chat_tool_format_json">Format JSON</string>
     <string name="chat_tool_compact_json">Compact JSON</string>
     <string name="content_desc_new_chat">New Chat</string>
+    <string name="content_desc_voice_chat">Voice Chat</string>
     <string name="content_desc_scroll_to_bottom">Scroll to bottom</string>
     <string name="content_desc_copy">Copy</string>
     <string name="content_desc_copied">Copied</string>

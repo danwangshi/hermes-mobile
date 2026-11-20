@@ -92,7 +92,9 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_KANBAN_BOARD = "com.m57.hermescontrol.EXTRA_KANBAN_BOARD"
         const val EXTRA_KANBAN_TASK = "com.m57.hermescontrol.EXTRA_KANBAN_TASK"
         const val ACTION_NEW_CHAT_FROM_TILE = "com.m57.hermescontrol.ACTION_NEW_CHAT_FROM_TILE"
+        const val EXTRA_NEW_CHAT_VOICE = "com.m57.hermescontrol.EXTRA_NEW_CHAT_VOICE"
         private const val STATE_PENDING_TILE = "pending_new_chat_tile"
+        private const val STATE_PENDING_TILE_VOICE = "pending_new_chat_tile_voice"
     }
 
     private var baseContextLanguageCode: String = LocaleContextWrapper.SYSTEM_LANGUAGE
@@ -117,7 +119,9 @@ class MainActivity : ComponentActivity() {
         appLockController = AppLockController(this)
 
         if (savedInstanceState?.getBoolean(STATE_PENDING_TILE) == true) {
-            NavigationController.queueNewChatFromTile()
+            NavigationController.queueNewChatFromTile(
+                autoStartVoice = savedInstanceState.getBoolean(STATE_PENDING_TILE_VOICE),
+            )
         }
         consumeTileIntent(intent)
         consumeNotificationIntent(intent)
@@ -384,6 +388,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean(STATE_PENDING_TILE, NavigationController.pendingNewChatNavigation?.fromTile == true)
+        outState.putBoolean(
+            STATE_PENDING_TILE_VOICE,
+            NavigationController.pendingNewChatNavigation?.autoStartVoice == true,
+        )
         super.onSaveInstanceState(outState)
     }
 
@@ -391,7 +399,9 @@ class MainActivity : ComponentActivity() {
         if (intent?.action != ACTION_NEW_CHAT_FROM_TILE) return
         intent.action = null
         if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
-        NavigationController.queueNewChatFromTile()
+        NavigationController.queueNewChatFromTile(
+            autoStartVoice = intent.getBooleanExtra(EXTRA_NEW_CHAT_VOICE, false),
+        )
     }
 
     override fun onResume() {

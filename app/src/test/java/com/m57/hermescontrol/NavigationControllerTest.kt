@@ -151,6 +151,15 @@ class NavigationControllerTest {
     }
 
     @Test
+    fun `voice new chat carries auto start voice through navigation`() {
+        NavigationController.backStack = NavBackStack<NavKey>(ChatScreen)
+
+        NavigationController.openNewChat(autoStartVoice = true)
+
+        assertTrue(NavigationController.consumePendingNewChatNavigation()?.autoStartVoice == true)
+    }
+
+    @Test
     fun `openChatSession ignores blank ids`() {
         val backStack = NavBackStack<NavKey>(HistoryScreen)
         NavigationController.backStack = backStack

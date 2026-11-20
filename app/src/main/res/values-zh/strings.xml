@@ -179,6 +179,7 @@
     <string name="chat_tool_format_json">格式化 JSON</string>
     <string name="chat_tool_compact_json">压缩 JSON</string>
     <string name="content_desc_new_chat">新建对话</string>
+    <string name="content_desc_voice_chat">语音对话</string>
     <string name="content_desc_scroll_to_bottom">滚动到底部</string>
     <string name="content_desc_copy">复制</string>
     <string name="content_desc_copied">已复制</string>

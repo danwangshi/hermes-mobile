@@ -61,6 +61,7 @@ fun ChatLifecycleEffects(
     hasUnsentWork: Boolean = false,
     deferTileNavigation: Boolean = false,
     onClearDraft: () -> Unit = {},
+    onStartVoice: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -79,6 +80,7 @@ fun ChatLifecycleEffects(
                 NavigationController.consumePendingNewChatNavigation()?.let { request ->
                     onClearDraft()
                     viewModel.startNewChat(request.project)
+                    if (request.autoStartVoice) onStartVoice()
                 }
             },
             onCancel = { NavigationController.consumePendingNewChatNavigation() },
@@ -97,6 +99,7 @@ fun ChatLifecycleEffects(
         if (newChatRequest != null) {
             if (newChatRequest.fromTile) onClearDraft()
             viewModel.startNewChat(newChatRequest.project)
+            if (newChatRequest.autoStartVoice) onStartVoice()
             return@LaunchedEffect
         }
         // A shortcut may have waited for the socket while its server/profile was switched (#1602).

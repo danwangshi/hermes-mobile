@@ -30,7 +30,7 @@ internal fun LauncherShortcutNavigationEffect(hasToken: Boolean) {
         }
         when (request.action) {
             LauncherShortcuts.ACTION_NEW_CHAT -> {
-                NavigationController.openNewChat()
+                NavigationController.openNewChat(autoStartVoice = true)
             }
 
             LauncherShortcuts.ACTION_HISTORY -> {

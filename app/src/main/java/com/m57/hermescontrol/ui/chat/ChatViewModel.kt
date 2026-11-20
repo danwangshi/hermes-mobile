@@ -177,6 +177,11 @@ private class QueuedAttachmentTooLargeException(
     val attachment: Attachment,
 ) : Exception("Attachment too large: ${attachment.name}")
 
+data class AutoSpeakReply(
+    val messageId: String,
+    val text: String,
+)
+
 private sealed interface PrepareAttachmentResult {
     data class Success(
         val prepared: PreparedAttachment,
@@ -584,6 +589,12 @@ class ChatViewModel(
     fun abandonConnectionBrowser(): Boolean = connectionBrowserReturnTracker.abandon()
 
     private val _streamingState = MutableStateFlow(StreamingState())
+    private val _autoSpeakReply = MutableStateFlow<AutoSpeakReply?>(null)
+    val autoSpeakReply: StateFlow<AutoSpeakReply?> = _autoSpeakReply.asStateFlow()
+
+    fun consumeAutoSpeakReply() {
+        _autoSpeakReply.value = null
+    }
 
     // Issue #382: application-boundary stream deduplication gate
     private val streamSegmentGate =
@@ -1551,6 +1562,36 @@ class ChatViewModel(
 
         // Process side-effects from the reducer
         dispatchReducerEffects(result.effects)
+
+        val pendingReplyText = pendingVoiceReplyText
+        if (pendingReplyText != null &&
+            (effectiveEvent is WsEvent.MessageComplete || effectiveEvent is WsEvent.MessageDone)
+        ) {
+            val messages = result.state.messages
+            val userIndex = messages.indexOfLast { it.role == MessageRole.USER && it.content == pendingReplyText }
+            if (userIndex >= 0) {
+                pendingVoiceReplyText = null
+                val completedText =
+                    when (effectiveEvent) {
+                        is WsEvent.MessageComplete -> effectiveEvent.text
+                        else -> messages.lastOrNull { it.role == MessageRole.ASSISTANT }?.content.orEmpty()
+                    }.trim()
+                val failed =
+                    effectiveEvent is WsEvent.MessageComplete &&
+                        replyFailureFromPayload(effectiveEvent.rawPayload, effectiveEvent.text) != null
+                val interrupted =
+                    effectiveEvent is WsEvent.MessageComplete &&
+                        GatewayNotice.isInterruptSentinel(effectiveEvent.text)
+                val message = messages.drop(userIndex + 1).lastOrNull { it.role == MessageRole.ASSISTANT }
+                if (completedText.isNotBlank() && !failed && !interrupted) {
+                    _autoSpeakReply.value =
+                        AutoSpeakReply(
+                            messageId = message?.id ?: "voice-reply-${System.currentTimeMillis()}",
+                            text = completedText,
+                        )
+                }
+            }
+        }
 
         // Handle complex events that need ViewModel-specific context
         when (event) {
@@ -4116,6 +4157,9 @@ class ChatViewModel(
     /** True while a voice-note transcription owns the mic-to-send pipeline. */
     private var voiceNoteTranscriptionInFlight = false
 
+    /** Transcript whose reply should be spoken automatically; cleared on delivery or failure. */
+    private var pendingVoiceReplyText: String? = null
+
     /**
      * Transcribe a recorded voice note through the dashboard's server-side
      * STT relay (`POST /api/audio/transcribe` — the desktop client's voice
@@ -4131,6 +4175,7 @@ class ChatViewModel(
      * every branch below single-flight (review, PR #1250).
      */
     fun sendVoiceNote(file: File) {
+        pendingVoiceReplyText = null
         if (voiceNoteTranscriptionInFlight) {
             file.delete()
             return
@@ -4165,6 +4210,7 @@ class ChatViewModel(
                         if (transcript.isEmpty()) {
                             _uiState.update { it.copy(errorMessage = VOICE_NOTE_EMPTY_MESSAGE) }
                         } else {
+                            pendingVoiceReplyText = transcript.takeUnless { it.startsWith("/") }
                             deliverVoiceTranscript(
                                 transcript = transcript,
                                 recordedSessionId = recordedSessionId,
@@ -4211,6 +4257,7 @@ class ChatViewModel(
         // that move (review, PR #1250).
         val scopeChanged = AuthManager.currentDataScope() != recordedDataScope
         if (sessionChanged || scopeChanged || !sendMessage(transcript)) {
+            pendingVoiceReplyText = null
             _uiState.update {
                 it.copy(
                     composerTextToRestore = transcript,

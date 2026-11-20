@@ -2,12 +2,11 @@ package com.m57.hermescontrol.ui.chat.components
 
 import android.Manifest
 import android.app.Activity
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.OpenableColumns
-import android.speech.RecognizerIntent
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,7 +26,6 @@ import androidx.core.content.FileProvider
 import com.m57.hermescontrol.ExternalActivityLifecycleGuard
 import com.m57.hermescontrol.R
 import com.m57.hermescontrol.data.model.Attachment
-import com.m57.hermescontrol.ui.chat.SpeechInputHelper
 import com.m57.hermescontrol.ui.chat.VoiceNoteRecorder
 import kotlinx.coroutines.delay
 import java.io.File
@@ -41,6 +39,7 @@ class ChatMediaLaunchers(
     val isRecordingVoice: Boolean,
     val isVoiceNoteLocked: Boolean,
     val onMicTap: () -> Unit,
+    val onStartVoice: () -> Unit = {},
     val onCameraTap: () -> Unit,
     val onImageTap: () -> Unit,
     val onFileTap: () -> Unit,
@@ -66,33 +65,37 @@ fun rememberChatMediaLaunchers(
     var isListening by remember { mutableStateOf(false) }
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
 
-    val currentInputState by rememberUpdatedState(inputState)
     val currentOnAddAttachment by rememberUpdatedState(onAddAttachment)
     val currentOnAddAttachments by rememberUpdatedState(onAddAttachments)
     val currentOnVoiceNoteRecorded by rememberUpdatedState(onVoiceNoteRecorded)
     val currentOnShowMessage by rememberUpdatedState(onShowMessage)
     val currentLaunchExternalActivity by rememberUpdatedState(launchExternalActivity)
 
-    val micListeningPrompt = stringResource(R.string.chat_mic_listening)
-    val sttNotAvailableMsg = stringResource(R.string.stt_not_available)
     val sttPermissionDeniedMsg = stringResource(R.string.stt_permission_denied)
     val cameraErrorMsg = stringResource(R.string.chat_camera_error)
     val voiceRecordFailedMsg = stringResource(R.string.chat_voice_record_failed)
 
-    // Hold-to-record voice note recorder: the clip uploads to the dashboard
-    // for server-side transcription, unlike the flat tap path below, which
-    // still drives the on-device recognizer.
+    // Hands-free/press-to-talk voice recorder: every clip uploads to the
+    // dashboard for server-side transcription. The on-device recognizer is not
+    // used at all — a tap starts a locked recording, a hold records while the
+    // finger stays down, and the action button submits either one.
     val voiceNoteRecorder = remember { VoiceNoteRecorder(context) }
     var isRecordingVoice by remember { mutableStateOf(false) }
 
     // Locked = the recording continues after the finger lifts (slide up
     // during the hold); the action button then submits it.
     var isVoiceNoteLocked by remember { mutableStateOf(false) }
+    var autoSubmitAfterSilence by remember { mutableStateOf(false) }
+    var voiceHasSpeech by remember { mutableStateOf(false) }
+    var voiceSilenceStartedAt by remember { mutableStateOf(0L) }
 
     fun finishVoiceRecording() {
         val recordedFile = voiceNoteRecorder.stop()
         isRecordingVoice = false
         isVoiceNoteLocked = false
+        autoSubmitAfterSilence = false
+        voiceHasSpeech = false
+        voiceSilenceStartedAt = 0L
         if (recordedFile != null) {
             currentOnVoiceNoteRecorded(recordedFile)
         }
@@ -117,25 +120,6 @@ fun rememberChatMediaLaunchers(
         }
     }
 
-    // Speech-to-text recognition launcher (issue #194)
-    val speechLauncher =
-        rememberLauncherForActivityResult(
-            ActivityResultContracts.StartActivityForResult(),
-        ) { result ->
-            ExternalActivityLifecycleGuard.externalActivityReturned()
-            isListening = false
-            if (result.resultCode == Activity.RESULT_OK) {
-                val spokenText =
-                    result.data
-                        ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-                        ?.firstOrNull()
-                        .orEmpty()
-                if (spokenText.isNotBlank()) {
-                    currentInputState.appendSpeechComposerDraft(spokenText)
-                }
-            }
-        }
-
     // Mic permission launcher
     val micPermissionLauncher =
         rememberLauncherForActivityResult(
@@ -143,19 +127,13 @@ fun rememberChatMediaLaunchers(
         ) { granted ->
             ExternalActivityLifecycleGuard.externalActivityReturned()
             if (granted) {
-                if (SpeechInputHelper.isSpeechInputAvailable(context)) {
-                    val intent = SpeechInputHelper.createSpeechIntent(micListeningPrompt)
-                    isListening = true
-                    currentLaunchExternalActivity {
-                        try {
-                            speechLauncher.launch(intent)
-                        } catch (_: ActivityNotFoundException) {
-                            isListening = false
-                            currentOnShowMessage(sttNotAvailableMsg)
-                        }
-                    }
+                // Granting starts the same server-transcribed recording the tap
+                // would have started — the on-device recognizer is never used.
+                if (voiceNoteRecorder.start()) {
+                    isRecordingVoice = true
+                    isVoiceNoteLocked = true
                 } else {
-                    currentOnShowMessage(sttNotAvailableMsg)
+                    currentOnShowMessage(voiceRecordFailedMsg)
                 }
             } else {
                 currentOnShowMessage(sttPermissionDeniedMsg)
@@ -240,6 +218,7 @@ fun rememberChatMediaLaunchers(
         }
 
     val onMicTap: () -> Unit = {
+        autoSubmitAfterSilence = false
         if (isTranscribingVoiceNote) {
             // Single-flight: a server transcription owns the voice pipeline
             // until it lands (review, PR #1250).
@@ -258,19 +237,15 @@ fun rememberChatMediaLaunchers(
                 Manifest.permission.RECORD_AUDIO,
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            if (SpeechInputHelper.isSpeechInputAvailable(context)) {
-                val intent = SpeechInputHelper.createSpeechIntent(micListeningPrompt)
-                isListening = true
-                currentLaunchExternalActivity {
-                    try {
-                        speechLauncher.launch(intent)
-                    } catch (_: ActivityNotFoundException) {
-                        isListening = false
-                        currentOnShowMessage(sttNotAvailableMsg)
-                    }
-                }
+            // The on-device recognizer is deliberately bypassed: it resolves to
+            // a cloud STT provider that is unreachable here. A tap starts a
+            // locked (hands-free) recording instead, and the action button
+            // submits it to the dashboard's server-side transcription.
+            if (voiceNoteRecorder.start()) {
+                isRecordingVoice = true
+                isVoiceNoteLocked = true
             } else {
-                currentOnShowMessage(sttNotAvailableMsg)
+                currentOnShowMessage(voiceRecordFailedMsg)
             }
         } else {
             currentLaunchExternalActivity {
@@ -279,7 +254,33 @@ fun rememberChatMediaLaunchers(
         }
     }
 
+    val onStartVoice: () -> Unit = {
+        if (!isTranscribingVoiceNote && !isListening && !isRecordingVoice && !voiceNoteRecorder.isActive) {
+            if (
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.RECORD_AUDIO,
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                if (voiceNoteRecorder.start()) {
+                    isRecordingVoice = true
+                    isVoiceNoteLocked = true
+                    autoSubmitAfterSilence = true
+                    voiceHasSpeech = false
+                    voiceSilenceStartedAt = 0L
+                } else {
+                    currentOnShowMessage(voiceRecordFailedMsg)
+                }
+            } else {
+                currentLaunchExternalActivity {
+                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            }
+        }
+    }
+
     val onMicHoldStart: () -> Unit = {
+        autoSubmitAfterSilence = false
         if (isTranscribingVoiceNote) {
             // Single-flight: no new recording while a transcription runs.
         } else if (voiceNoteRecorder.isActive || isListening) {
@@ -317,6 +318,9 @@ fun rememberChatMediaLaunchers(
         }
         isRecordingVoice = false
         isVoiceNoteLocked = false
+        autoSubmitAfterSilence = false
+        voiceHasSpeech = false
+        voiceSilenceStartedAt = 0L
     }
 
     // Locking keeps the recorder running once the finger lifts; only the
@@ -335,8 +339,22 @@ fun rememberChatMediaLaunchers(
     LaunchedEffect(isRecordingVoice) {
         if (isRecordingVoice) {
             while (isRecordingVoice) {
-                recordingAmplitude.value =
+                val level =
                     sqrt(voiceNoteRecorder.currentAmplitude().coerceAtLeast(0) / 32767f)
+                recordingAmplitude.value = level
+                if (autoSubmitAfterSilence && isRecordingVoice) {
+                    val now = SystemClock.elapsedRealtime()
+                    if (level >= AUTO_SUBMIT_SPEECH_LEVEL) {
+                        voiceHasSpeech = true
+                        voiceSilenceStartedAt = 0L
+                    } else if (voiceHasSpeech) {
+                        if (voiceSilenceStartedAt == 0L) {
+                            voiceSilenceStartedAt = now
+                        } else if (now - voiceSilenceStartedAt >= AUTO_SUBMIT_SILENCE_MS) {
+                            finishVoiceRecording()
+                        }
+                    }
+                }
                 delay(AMPLITUDE_POLL_MS)
             }
         } else {
@@ -383,6 +401,7 @@ fun rememberChatMediaLaunchers(
             isRecordingVoice = isRecordingVoice,
             isVoiceNoteLocked = isVoiceNoteLocked,
             onMicTap = onMicTap,
+            onStartVoice = onStartVoice,
             onCameraTap = onCameraTap,
             onImageTap = onImageTap,
             onFileTap = onFileTap,
@@ -397,3 +416,5 @@ fun rememberChatMediaLaunchers(
 
 /** Telegram samples their amplitude pipeline roughly this fast. */
 private const val AMPLITUDE_POLL_MS = 60L
+private const val AUTO_SUBMIT_SILENCE_MS = 2_200L
+private const val AUTO_SUBMIT_SPEECH_LEVEL = 0.05f

@@ -1,5 +1,10 @@
 pluginManagement {
     repositories {
+        // China mirrors first: repo.maven.apache.org and dl.google.com both
+        // fail TLS handshake from this network.
+        maven { url = uri("https://maven.aliyun.com/repository/public") }
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
+        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
         google {
             content {
                 includeGroupByRegex("androidx.*")
@@ -14,6 +19,11 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        // China mirrors first: repo.maven.apache.org and dl.google.com both
+        // fail TLS handshake from this network.
+        maven { url = uri("https://maven.aliyun.com/repository/public") }
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
+        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
         google {
             content {
                 includeGroupByRegex("androidx.*")

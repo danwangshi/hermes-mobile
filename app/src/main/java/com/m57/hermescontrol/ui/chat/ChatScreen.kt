@@ -294,6 +294,22 @@ fun ChatScreen(
     val preparingSpeechId by speechController.preparingId.collectAsStateWithLifecycle()
     val dataScope by AuthManager.dataScopeFlow.collectAsStateWithLifecycle()
     val activeSessionId by ActiveSessionHolder.activeSessionId.collectAsStateWithLifecycle()
+    val autoSpeakReply by viewModel.autoSpeakReply.collectAsStateWithLifecycle()
+    LaunchedEffect(autoSpeakReply) {
+        val reply = autoSpeakReply ?: return@LaunchedEffect
+        val speechText = SpeechText.stripMarkdownForSpeech(reply.text)
+        if (speechText.isNotBlank()) {
+            val scopeKey = "${dataScope?.inMemoryKey(localKey = activeSessionId ?: "none")}"
+            speechController.toggle(
+                SpeechRequest(
+                    scopeKey = scopeKey,
+                    messageId = reply.messageId,
+                    text = speechText,
+                ),
+            )
+        }
+        viewModel.consumeAutoSpeakReply()
+    }
     val listState = rememberLazyListState(prefetchStrategy = ChatTimelineNoPrefetchStrategy)
     val scrollScope = rememberCoroutineScope()
     val scrollController = rememberChatScrollController(listState, scrollScope)
@@ -563,6 +579,7 @@ fun ChatScreen(
         deferTileNavigation =
             state.isLoading || mediaLaunchers.isListening || state.isTranscribingVoiceNote,
         onClearDraft = { inputState.replaceComposerDraft("") },
+        onStartVoice = mediaLaunchers.onStartVoice,
     )
 
     HermesScaffold(

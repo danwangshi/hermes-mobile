@@ -4,8 +4,8 @@
         android:shortcutId="new_chat"
         android:enabled="true"
         android:icon="@drawable/ic_shortcut_chat"
-        android:shortcutShortLabel="@string/content_desc_new_chat"
-        android:shortcutLongLabel="@string/content_desc_new_chat">
+        android:shortcutShortLabel="@string/content_desc_voice_chat"
+        android:shortcutLongLabel="@string/content_desc_voice_chat">
         <intent
             android:action="com.m57.hermescontrol.shortcut.NEW_CHAT"
             android:targetPackage="com.m57.hermescontrol"

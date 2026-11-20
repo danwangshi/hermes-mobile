@@ -54,6 +54,8 @@ class AssistantSession(
 
         val intent =
             Intent(context, MainActivity::class.java)
+                .setAction(MainActivity.ACTION_NEW_CHAT_FROM_TILE)
+                .putExtra(MainActivity.EXTRA_NEW_CHAT_VOICE, true)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         context.startActivity(intent)
 
