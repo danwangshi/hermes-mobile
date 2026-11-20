@@ -195,8 +195,9 @@ open class AppUpdateChecker(
     private val downloadClient by lazy {
         client
             .newBuilder()
-            // 定制版：16MB APK 走跨境链路，30s 读超时不够；逐次读取放宽到 60s。
-            .readTimeout(60, TimeUnit.SECONDS)
+            // 定制版：被阻断的直链会「连上但零字节」，20s 无数据即判失败、切下一个源；
+            // 正常下载时数据持续流动，单次 read 20s 足够。
+            .readTimeout(20, TimeUnit.SECONDS)
             // Never switch scheme on redirect; the interceptor below stays as a second guard.
             .followSslRedirects(false)
             .addNetworkInterceptor { chain ->
