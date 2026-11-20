@@ -86,22 +86,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh issue create --repo "$GITHUB_REPOSITORY" \
-            --title "上游同步冲突：需要手动 rebase $BRANCH" \
-            --body "定时任务尝试把 \`$BRANCH\` rebase 到上游 main 时冲突，已中止，分支未被改写。
-
-手动处理：
-
-\`\`\`bash
-git fetch upstream main
-git checkout $BRANCH
-git rebase upstream/main
-# 解决冲突后
-git rebase --continue
-git push --force-with-lease
-\`\`\`
-
-处理完关闭本 issue，下次定时任务会继续。" || true
+          gh issue create --repo "$GITHUB_REPOSITORY" \n            --title "上游同步冲突：需要手动 rebase $BRANCH" \n            --body "自动 rebase 冲突，已中止，分支未改写。本地处理：git fetch upstream main && git checkout $BRANCH && git rebase upstream/main；解决冲突后 git rebase --continue && git push --force-with-lease。" || true
           exit 1
 
       - name: Compute version
@@ -194,5 +179,4 @@ git push --force-with-lease
             --repo "$GITHUB_REPOSITORY" \
             --target "$BRANCH" \
             --title "$NAME (custom)" \
-            --notes "上游同步后自动构建。versionName \`$NAME\`，versionCode \`$CODE\`。
-安装后在 App 内「检查更新」即可继续收到定制版更新。"
+            --notes "上游同步后自动构建。versionName \`$NAME\`，versionCode \`$CODE\`。安装后在 App 内「检查更新」即可收到定制版更新。"
