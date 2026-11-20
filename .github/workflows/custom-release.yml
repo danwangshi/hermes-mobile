@@ -140,6 +140,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ -n "$KEYSTORE_BASE64" ]] || { echo "缺少 secret: KEYSTORE_BASE64" >&2; exit 1; }
+          echo "keystore base64 length: ${#KEYSTORE_BASE64}"
           umask 077
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore.jks"
 
