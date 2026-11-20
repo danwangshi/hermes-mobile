@@ -7,6 +7,11 @@ on:
   schedule:
     - cron: "17 19 * * *" # 03:17 Asia/Shanghai
   workflow_dispatch:
+    inputs:
+      force:
+        description: "强制构建发布（即使上游无新提交）"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -44,13 +49,20 @@ jobs:
 
       - name: Fetch upstream
         id: upstream
+        env:
+          FORCE: ${{ inputs.force }}
         run: |
           set -euo pipefail
           git remote add upstream "$UPSTREAM"
           git fetch upstream main --tags --force
           if git merge-base --is-ancestor upstream/main HEAD; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "上游 main 无新提交，跳过构建"
+            if [[ "$FORCE" == "true" ]]; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              echo "上游无新提交，但指定了 force，继续构建"
+            else
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              echo "上游 main 无新提交，跳过构建"
+            fi
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "上游有新提交：$(git rev-list --count HEAD..upstream/main) 个"
