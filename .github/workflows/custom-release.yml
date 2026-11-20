@@ -137,13 +137,13 @@ jobs:
 
       - name: Decode keystore
         env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
-          [[ -n "$KEYSTORE_BASE64" ]] || { echo "缺少 secret: KEYSTORE_BASE64" >&2; exit 1; }
-          echo "keystore base64 length: ${#KEYSTORE_BASE64}"
+          [[ -n "$ANDROID_KEYSTORE_BASE64" ]] || { echo "缺少 secret: ANDROID_KEYSTORE_BASE64" >&2; exit 1; }
           umask 077
-          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore.jks"
+          [[ -s "$RUNNER_TEMP/release.keystore.jks" ]] || { echo "keystore 解码为空" >&2; exit 1; }
 
       - name: Build release APK
         env:
