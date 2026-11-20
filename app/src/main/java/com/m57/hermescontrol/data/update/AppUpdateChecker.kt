@@ -167,7 +167,8 @@ fun isReleaseCandidateVersion(tag: String): Boolean =
  */
 open class AppUpdateChecker(
     private val client: OkHttpClient = OkHttpProvider.external,
-    private val apiBaseUrl: String = "https://api.github.com/repos/Hy4ri/hermes-mobile",
+    // 定制版：自更新源指向 fork，上游 release 不再触发更新提示。
+    private val apiBaseUrl: String = "https://api.github.com/repos/danwangshi/hermes-mobile",
     private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
     private val metadataTtlMs: Long = 60_000L,
 ) {
