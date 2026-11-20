@@ -1,0 +1,186 @@
+name: Custom Release
+
+# 上游有新的 main 提交时：rebase 定制分支 → 构建 → 发布 release。
+# 客户端 App 的自更新源指向本仓库，因此 release 发布后可直接在 App 内点更新。
+
+on:
+  schedule:
+    - cron: "17 19 * * *" # 03:17 Asia/Shanghai
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: custom-release
+  cancel-in-progress: false
+
+env:
+  UPSTREAM: https://github.com/Hy4ri/hermes-mobile.git
+  BRANCH: custom/voice
+
+jobs:
+  sync:
+    name: Sync custom branch with upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      changed: ${{ steps.upstream.outputs.changed }}
+      conflict: ${{ steps.rebase.outputs.conflict }}
+      name: ${{ steps.version.outputs.name }}
+      tag: ${{ steps.version.outputs.tag }}
+      code: ${{ steps.version.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH }}
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "hermes-custom-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream
+        id: upstream
+        run: |
+          set -euo pipefail
+          git remote add upstream "$UPSTREAM"
+          git fetch upstream main --tags --force
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "上游 main 无新提交，跳过构建"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "上游有新提交：$(git rev-list --count HEAD..upstream/main) 个"
+          fi
+
+      - name: Rebase custom branch
+        if: steps.upstream.outputs.changed == 'true'
+        id: rebase
+        run: |
+          if git rebase upstream/main; then
+            echo "conflict=false" >> "$GITHUB_OUTPUT"
+            git push --force-with-lease origin "HEAD:$BRANCH"
+          else
+            git rebase --abort || true
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report rebase conflict
+        if: steps.rebase.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "上游同步冲突：需要手动 rebase $BRANCH" \
+            --body "定时任务尝试把 \`$BRANCH\` rebase 到上游 main 时冲突，已中止，分支未被改写。
+
+手动处理：
+
+\`\`\`bash
+git fetch upstream main
+git checkout $BRANCH
+git rebase upstream/main
+# 解决冲突后
+git rebase --continue
+git push --force-with-lease
+\`\`\`
+
+处理完关闭本 issue，下次定时任务会继续。" || true
+          exit 1
+
+      - name: Compute version
+        if: steps.upstream.outputs.changed == 'true' && steps.rebase.outputs.conflict != 'true'
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE=$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1)
+          [[ -n "$BASE" ]] || { echo "找不到上游版本 tag" >&2; exit 1; }
+          V="${BASE#v}"
+          IFS=. read -r MAJOR MINOR PATCH <<< "$V"
+          LAST=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --json tagName -q '.[].tagName' \
+            | grep -E "^v${V}\.[0-9]+$" | sed -E "s/^v${V}\.//" | sort -n | tail -n1 || true)
+          N=$(( ${LAST:-0} + 1 ))
+          if (( N > 9 )); then
+            echo "同一上游版本（$V）的定制次数超过 9，请手动整理 release" >&2
+            exit 1
+          fi
+          NAME="${V}.${N}"
+          CODE=$(( MAJOR * 100000 + MINOR * 1000 + PATCH * 10 + N ))
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "本次发布：$NAME (versionCode $CODE)"
+
+  build:
+    name: Build and publish
+    needs: sync
+    if: needs.sync.outputs.changed == 'true' && needs.sync.outputs.conflict != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.BRANCH }}
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          [[ -n "$KEYSTORE_BASE64" ]] || { echo "缺少 secret: KEYSTORE_BASE64" >&2; exit 1; }
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.keystore.jks"
+
+      - name: Build release APK
+        env:
+          VERSION_NAME: ${{ needs.sync.outputs.name }}
+          VERSION_CODE: ${{ needs.sync.outputs.code }}
+          KEYSTORE_PATH: ${{ runner.temp }}/release.keystore.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew assembleRelease \
+            -PversionName="$VERSION_NAME" \
+            -PversionCode="$VERSION_CODE"
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/release.keystore.jks"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.sync.outputs.tag }}
+          NAME: ${{ needs.sync.outputs.name }}
+          CODE: ${{ needs.sync.outputs.code }}
+          BRANCH: ${{ env.BRANCH }}
+        run: |
+          set -euo pipefail
+          cp app/build/outputs/apk/release/app-release.apk "hermes-mobile-$TAG.apk"
+          gh release create "$TAG" "hermes-mobile-$TAG.apk" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$BRANCH" \
+            --title "$NAME (custom)" \
+            --notes "上游同步后自动构建。versionName \`$NAME\`，versionCode \`$CODE\`。
+安装后在 App 内「检查更新」即可继续收到定制版更新。"
