@@ -24,6 +24,7 @@ concurrency:
 env:
   UPSTREAM: https://github.com/Hy4ri/hermes-mobile.git
   BRANCH: custom/voice
+  GRADLE_CN_MIRROR: "false"
 
 jobs:
   sync:
